@@ -1,0 +1,192 @@
+\documentclass[11pt]{article}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage[czech]{babel}
+
+\geometry{a4paper, includefoot, nomarginpar, left=25mm, right=25mm, top=25mm, bottom=25mm}
+
+\title{Srovnání komprese dat pomocí SVD a waveletové transformace}
+\author{SIM0441}
+
+\begin{document}
+
+\maketitle
+
+\section{Úvod}
+Projekt se zabývá srovnáním dvou metod komprese obrazových dat, Singulárního rozkladu (SVD) a diskrétní waveletové transformace (DWT). Cílem je porovnat jejich účinnost z hlediska kvality rekonstrukce, výpočetní složitosti a analyzovat vliv parametrů na výsledky příslušných metod. Pro přímočarost budeme pracovat s černobílými obrázky.
+
+\section{Popis použitých metod}
+
+\subsection{Singulární rozklad (SVD)}
+
+Singulární rozklad je algoritmus, který umožňuje rozložit libovolnou matici $A$ (v našem případě matici digitálního obrazu o rozměrech $m \times n$) na součin tří specifických matic:
+\begin{equation}
+    A = U \Sigma V^T
+\end{equation}
+\subsubsection{Struktura matic rozkladu}
+\begin{itemize}
+    \item \textbf{Matice $U$ (Levé singulární vektory)}
+    \subitem Ortonormální matice o rozměrech $m \times m$. Sloupce $u_i$ nazýváme levými singulárními vektory. V kontextu zpracování obrazu tyto vektory reprezentují vertikální struktury a tvoří bázi pro prostor sloupců matice $A$. Představují základní svislé vzory, ze kterých je obraz skládán.
+    
+    \item \textbf{Matice $\Sigma$ (Singulární hodnoty)}
+    \subitem Diagonální matice o rozměrech $m \times n$. Na hlavní diagonále se nacházejí nezáporná čísla $\sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_r > 0$ (kde $r$ je hodnost matice $A$), zvaná singulární hodnoty. Tyto hodnoty určují váhu informací odpovídajících vektorů v maticích $U$ a $V^T$. Pro rekonstrukci obrazu vybíráme ty singulární hodnoty, které nesou největší množství informací o obrazu.
+    
+    \item \textbf{Matice $V^T$ (Pravé singulární vektory)}
+    \subitem Transponovaná ortonormální matice o rozměrech $n \times n$. Řádky $v_i^T$ nazýváme pravými singulárními vektory. Tyto vektory reprezentují horizontální struktury a bázi pro prostor řádků matice $A$. Představují základní vodorovné vzory obrazu.
+\end{itemize}
+
+\subsubsection{Aproximace nízkou hodností}
+
+Princip komprese pomocí SVD spočívá v aplikaci Eckart-Youngovy věty. Ta definuje, že nejlepší aproximaci matice $A$ maticí o hodnosti $k$ (kde $k < r$) získáme tak, že ponecháme pouze $k$ největších singulárních hodnot a zbývající prvky diagonály vynulujeme. 
+
+\begin{equation}
+    A \approx A_k = \sum_{i=1}^{k} \sigma_i u_i v_i^T
+\end{equation}
+
+Vnější součin vektoru $u_i$ a $v_i^T$ je matice o rozměrech původní matice $A$, hodnota $\sigma_i$ pak udává váhu této matice vzhledem k finální rekonstrukci, která vznikne součtem $k$ takto vytvořených matic. Čím vyšší i, tím více matice do rekonstrukce přispívá spíš detaily, nežli klíčovými obrysy.
+
+\subsubsection{Datová úspora a výpočetní náročnost}
+
+Zatímco původní nekomprimovaná matice vyžaduje uložení $m \cdot n$ prvků, komprimovaná podoba s hodností $k$ vyžaduje pouze uložení $k$ sloupců $U$, $k$ hodnot $\Sigma$ a $k$ řádků $V^T$:
+\begin{equation}
+    \text{Uložená data} = (k \cdot m) + k + (k \cdot n) = k(m + n + 1)
+\end{equation}
+
+Hlavní nevýhodou SVD, kterou potvrzují i naše experimentální měření, je vysoká výpočetní náročnost. Algoritmus má teoretickou složitost $\mathcal{O}(\min(mn^2, m^2n))$, což jej činí méně efektivním ve srovnání s waveletovou transformací, zejména při zpracování obrazu ve vysokém rozlišení.
+
+\subsection{Diskrétní waveletová transformace (DWT)}
+
+Diskrétní waveletová transformace rozkládá obraz na lokalizované vlnky, což umožňuje efektivní reprezentaci jak hrubých obrysů, tak jemných detailů, bez vysoké výpočetní náročnosti.
+
+\subsubsection{Princip víceúrovňového rozkladu}
+
+DWT pracuje na principu průchodu obrazu soustavou filtrů. V rámci jednoho kroku rozkladu vznikají čtyři oblasti:
+
+\begin{itemize}
+    \item \textbf{LL (Aproximace)} 
+    \subitem Výsledek průchodu dolní propustí v obou směrech. Obsahuje zmenšenou a vyhlazenou verzi původního obrazu (nízké frekvence). Obsahuje informace o plynulých přechodech mezi barvami a celkovém jasu ploch.
+    \item \textbf{LH, HL, HH (Detaily)}
+    \subitem Výsledky průchodu horní propustí. Zachycují horizontální, vertikální a diagonální hrany (vysoké frekvence). Obsahují informace o ostrých přechodech, hodnoty v těchto maticích bývají nízké a jejich vynulování je podstatou komprese.
+\end{itemize}
+
+V kódu je využit víceúrovňový rozklad (\texttt{level=3}), kde se v každém dalším kroku rozkládá pouze oblast aproximace (LL).
+
+\subsubsection{Komprese pomocí prahování koeficientů}
+
+Klíčem ke kompresi v DWT je prahování koeficientů. Většina koeficientů v detailních oblastech (LH, HL, HH) má u běžných fotografií hodnoty blízké nule. 
+Proces komprese probíhá následovně:
+\begin{itemize}
+    \item Celý obraz je transformován do seznamu matic obsahujících koeficienty rozdílů jasu okolí.
+    \item Je stanovena prahová hodnota a koeficienty s menší absolutní hodnotou jsou vynulovány.
+    \item Ze zbylých koeficientů je pomocí inverzní DWT rekonstruován výsledný obraz.
+\end{itemize}
+
+\subsubsection{Datová úspora a výpočetní náročnost}
+
+U DWT využíváme faktu, že většina informace o obrázku je obsažena v malém počtu koeficientů. Počet nenulových prvků, které je nutné uchovat pro rekonstrukci, je dán vztahem:
+\begin{equation}
+    \text{Uložená data} = \frac{m \cdot n}{\text{target\_ratio}}
+\end{equation}
+Většina koeficientů v detailních oblastech (LH, HL, HH) nese minimální informační hodnotu, což umožňuje dosáhnout vysokého kompresního poměru zachovat podstatné hrany a textury. Algoritmus má teoretickou lineární složitost $\mathcal{O}(N)$, kde $N$ je celkový počet pixelů obrazu ($m \times n$).
+
+\section{Výsledky měření}
+
+Pro objektivní zhodnocení kvality rekonstrukce byly využity metriky PSNR (Peak Signal-to-Noise Ratio), udávající logaritmickou míru věrnosti v decibelech, a SSIM (Structural Similarity Index), která vystihuje vnímání změn obrazu lidským okem.
+
+\subsection{Srovnání při fixním kompresním poměru}
+
+Pro porovnání obou metod byl zvolen kompresní poměr 50:1. Cílem bylo zjistit, jak si každá z nich poradí s výraznou kompresí.
+
+\begin{table}[ht]
+\centering
+\caption{Naměřené hodnoty pro obrázek 1.jpg (3000x4000) při poměru 50:1}
+\label{tab:vysledky_1jpg}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Metoda & PSNR [dB] & SSIM & Čas [s] & Parametr \\ \midrule
+SVD & 29,22 & 0,770 & 32,53 & $k = 34$ \\
+Wavelet (DWT) & 35,69 & 0,855 & 1,42 & level = 3 \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\caption{Naměřené hodnoty pro obrázek 2.jpg (8160x6120) při poměru 50:1}
+\label{tab:vysledky_2jpg}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Metoda & PSNR [dB] & SSIM & Čas [s] & Parametr \\ \midrule
+SVD & 21,89 & 0,668 & 135,35 & $k = 69$ \\
+Wavelet (DWT) & 29,83 & 0,856 & 6,76 & level = 3 \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\caption{Naměřené hodnoty pro obrázek 3.jpg (3000x4000) při poměru 50:1}
+\label{tab:vysledky_3jpg}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Metoda & PSNR [dB] & SSIM & Čas [s] & Parametr \\ \midrule
+SVD & 22,04 & 0,653 & 22,19 & $k = 34$ \\
+Wavelet (DWT) & 28,53 & 0,807 & 1,52 & level = 3 \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\clearpage
+
+\begin{table}[ht]
+\centering
+\caption{Naměřené hodnoty pro obrázek 4.jpg (3000x4000) při poměru 50:1}
+\label{tab:vysledky_4jpg}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Metoda & PSNR [dB] & SSIM & Čas [s] & Parametr \\ \midrule
+SVD & 15,54 & 0,305 & 24,79 & $k = 34$ \\
+Wavelet (DWT) & 20,41 & 0,563 & 1,48 & level = 3 \\ \bottomrule
+\end{tabular}
+\end{table}
+
+Ze všech měření vyplývá, že DWT při zvoleném kompresním poměru vítězí ve všech sledovaných metrikách. Konkrétně například u 3.jpg dosahuje o 6,49\,dB vyššího PSNR a o 0,154 vyššího SSIM. Z hlediska výpočetní efektivity je DWT přibližně patnáctkrát, až třiadvacetkrát rychlejší, což potvrzuje naše předpoklady o teoretických složitostech jednotlivých metod. Rovněž výsledky ukazují, že efektivita komprese nezávisí pouze na rozlišení, ale významně i na charakteru scény na obrázku.
+
+\subsection{Analýza vlivu parametrů}
+
+Druhá část měření zkoumala vliv příslušných parametrů, úrovně rozkladu u DWT a počtu singulárních hodnot u SVD, na výslednou rekonstrukci.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{graphs_1.png}
+
+\caption{Vliv parametrů na kvalitu rekonstrukce obrázku 1.jpg.}
+\label{fig:grafy_parametry}
+\end{figure}
+
+\begin{itemize}
+    \item \textbf{Vliv úrovně rozkladu (Wavelet)}
+    \subitem Graf ukazuje strmý nárůst kvality do urovně 3. Další zvyšování až na úroveň 6 již nevede k velkému narůstu PSNR. Pro efektivní kompresi je tedy \texttt{level=3} optimálním nastavením.
+    
+    \item \textbf{Vliv počtu singulárních hodnot (SVD)}
+    \subitem Graf demonstruje, že u SVD je nárůst kvality plynulejší, avšak méně efektivní vzhledem k množství dat. Aby SVD dosáhlo srovnatelné kvality jako DWT při poměru 50:1, muselo by pracovat s počtem $k$ přes 300, tedy mnohem nižším kompresním poměrem.
+\end{itemize}
+
+\clearpage
+
+\section{Závěr}
+Na základě provedených experimentů s různými typy a rozlišeními obrazků vyvozuji následující závěry
+
+\begin{enumerate}
+    \item \textbf{Kvalita rekonstrukce a vizuální věrnost} \\
+    Metoda DWT při fixním kompresním poměru 50:1 konzistentně překonává SVD ve všech testovaných metrikách. Dosahuje v průměru o 5--8\,dB vyššího PSNR a výrazně vyššího indexu SSIM. Oční test nápodobně potvrzuje, že zatímco SVD při této míře komprese produkuje viditelně rozmazaný obraz se ztrátou detailů a dekompresními artefakty, DWT dokáže rekonstruovat obraz na první pohled nerozeznatelný od originálu.
+
+    \item \textbf{Výpočetní efektivita} \\
+    Zásadním rozdílem mezi metodami je jejich časová složitost. Experimenty potvrdily teoretický předpoklad, že zatímco DWT disponuje složitostí ($\mathcal{O}(N)$), výpočet SVD roste mnohem strměji. U zkoumaných obrázků byla DWT přibližně 15-23krát rychlejší. U 50 MPx obrázku (2.jpg) zpracování pomocí SVD trvalo přes 2 minuty, zatímco DWT to zvládla do 7 sekund.
+    
+    \item \textbf{Optimalizace parametrů} \\
+    Analýza závislosti kvality na parametrech ukázala, že pro DWT je optimální úroveň rozkladu 3. Při dalším zvyšování již nedochází k signifikantnímu zlepšení PSNR. U metody SVD se ukázalo, že pro dosažení srovnatelné kvality jako DWT by bylo nutné ukládat daleko větší počet singulárních hodnot, než který by odpovídal příslušnému kompresnímu poměru.
+\end{enumerate}
+
+Z výsledků tedy jednoznačně vyplývá, že pro kompresi těchto typů obrázků je diskrétní waveletová transformace výrazně vhodnější metodou, protože je nejen daleko rychlejší, ale také dosahuje kvalitnějších výsledků.
+
+\end{document}
